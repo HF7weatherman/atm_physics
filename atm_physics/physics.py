@@ -405,6 +405,33 @@ def calc_sfc_bf(
     return G / (rho * Tv) * (shf / CPD_BF * (1 + BETA * q) + lhf / LV * BETA * T)
 
 
+def calc_evap_from_lhf(lhf: xr.DataArray, SST: xr.DataArray) -> xr.DataArray:
+    """
+    Calculate evaporation from latent heat flux and SST.
+
+    Parameters
+    ----------
+    lhf : xr.DataArray or array-like
+        Latent heat flux [W m-2].
+    SST : xr.DataArray or array-like
+        Sea surface temperature [K].
+
+    Returns
+    -------
+    xr.DataArray or array-like
+        Evaporation [kg m-2 s-1].
+
+    Notes
+    -----
+    - The latent heat of vaporization is temperature-dependent and calculated
+    following Zhao et al. (2024):
+    https://lpdaac.usgs.gov/documents/2254/VNP16_User_Guide_V1.pdf?utm_source=chatgpt.com
+    """
+    Lv = LV - 0.002361 * (SST - K2C) * 1e6  # J/kg
+    evap = -lhf / Lv
+    return evap
+
+
 # ==============================================================================
 # DRY THERMODYNAMICS
 # ==============================================================================
