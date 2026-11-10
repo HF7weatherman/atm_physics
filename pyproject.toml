@@ -22,5 +22,3 @@ classifiers=[
 ]
 dynamic = ["version"]
 
-[tool.setuptools.dynamic]
-version = {attr = "atm_physics.__version__"}
