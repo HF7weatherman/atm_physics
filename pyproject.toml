@@ -11,6 +11,7 @@ dependencies = [
     "numpy",
     "xarray",
     "scipy",
+    "grid_toolbox @ file:///home/m/m300738/libs/grid_toolbox",
 ]
 description = "Toolbox containing functions for basic atmospheric physics calculations."
 requires-python = ">=3.10"

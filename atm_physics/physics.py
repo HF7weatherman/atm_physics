@@ -28,6 +28,8 @@ import numpy as np
 import xarray as xr
 import scipy.interpolate as ipl
 
+import grid_toolbox.vertical_integration as vint
+
 # Physical Constants
 G = 9.80665             # m/s^2, acceleration due to gravity
 R_DRY = 287.085         # specific gas constant for dry air J/(kg·K)
@@ -46,7 +48,11 @@ K2C = 273.15            # conversion from Kelvin to Celsius
 # ==============================================================================
 # MOIST THERMODYNAMICS
 # ==============================================================================
-def calc_q_sat(T, p, use_ice=True):
+def calc_q_sat(
+        T: xr.DataArray,
+        p: xr.DataArray,
+        use_ice: bool=True,
+        ) -> xr.DataArray:
     """
     Saturation specific humidity q_s (kg/kg) from temperature (K) and pressure (Pa).
 
@@ -92,7 +98,7 @@ def calc_q_sat(T, p, use_ice=True):
     return q_sat
 
 
-def magnus_formula_in_hPa(T, state='liquid'):
+def magnus_formula_in_hPa(T: xr.DataArray, state: str='liquid') -> xr.DataArray:
     """
     Saturation vapor pressure using Magnus formula.
     
@@ -133,24 +139,11 @@ def magnus_formula_in_hPa(T, state='liquid'):
     return e_s
 
     
-def int_q(q):
-    """
-    Vertically integrated specific humidity (column water vapor).
-    
-    Parameters
-    ----------
-    q : xarray.DataArray
-        Specific humidity (kg/kg).
-
-    Returns
-    -------
-    xarray.DataArray
-        Vertically integrated specific humidity (kg/m^2).
-    """
-    return (q / G).integrate(coord='plev')
-
-
-def calc_crh(ds):
+def calc_crh(
+        ds: xr.Dataset,
+        vcoord_system: str,
+        vcoord_name: str,
+        ) -> xr.DataArray:
     """
     Column Relative Humidity (CRH).
     
@@ -169,9 +162,33 @@ def calc_crh(ds):
     xarray.DataArray
         Column relative humidity (dimensionless, 0-1).
     """
-    q_sat = calc_q_sat(ds.T, ds.plev)
-    qsat_int = int_q(q_sat)
-    q_int = int_q(ds.hus)
+    if vcoord_system in ['z', 'sigma-z'] and 'rho' not in ds.data_vars:
+        raise ValueError(
+            "Dataset must contain 'rho' for CRH calculation in z- or " + \
+            "sigma-z-coordinates.",
+            )
+    if vcoord_system == 'sigma-z' and 'dzghalf' not in ds.data_vars:
+        raise ValueError(
+            "Dataset must contain 'dzghalf' for CRH calculation in " + \
+            "sigma-z-coordinates.",
+            )
+
+    q_sat = calc_q_sat(ds.ta, ds.pfull)
+    
+    if vcoord_system == "z":
+        qsat_int = vint.intv_z(q_sat, ds.rho, vcoord_name)
+        q_int = vint.intv_z(ds.hus, ds.rho, vcoord_name)
+    elif vcoord_system == "sigma-z":
+        qsat_int = vint.intv_sigma_z(q_sat, ds.rho, ds.dzghalf, vcoord_name)
+        q_int = vint.intv_sigma_z(ds.hus, ds.rho, ds.dzghalf, vcoord_name)
+    elif vcoord_system == "p":
+        qsat_int = vint.intv_p(q_sat, vcoord_name)
+        q_int = vint.intv_p(ds.hus, vcoord_name)
+    else:
+        raise ValueError(
+            f"Unsupported vertical coordinate system: {vcoord_system}"
+            )
+
     return (q_int / qsat_int)
 
 
