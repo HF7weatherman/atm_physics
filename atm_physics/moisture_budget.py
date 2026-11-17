@@ -3,7 +3,6 @@ import xarray as xr
 
 import grid_toolbox.spherical_derivatives_healpix as hp_sphere
 import grid_toolbox.vertical_interpolation as vinterp
-import grid_toolbox.vertical_integration as vintegr
 
 from atm_physics.physics import calc_evap_from_lhf
 
@@ -11,13 +10,8 @@ REQUIRED_VARS = [
     'pr', 'hfls', 'ts', 'hus', 'clw', 'cli', 'qg', 'qr', 'qs', 'ua', 'va', 'rho'
     ]
 
-TARGET_PCOORDS = np.array([
-    100000, 97500, 95000, 92500, 90000, 87500, 85000, 80000, 75000, 70000,
-     60000, 50000, 40000, 30000, 25000, 20000, 15000, 10000,
-     ])
 
-
-def calc_moisture_budget(data, vcoord_system, t_granularity):
+def calc_moisture_budget(data, vcoord_system, target_coords, t_granularity):
     # check availability of all required variables
     for var in REQUIRED_VARS:
         if var not in data:
@@ -38,10 +32,9 @@ def calc_moisture_budget(data, vcoord_system, t_granularity):
 
     # Interpolate to target vertical coordinate system
     if vcoord_system == 'p':
-        data_3d = vinterp.interp_vertical_p(data_3d, TARGET_PCOORDS)
+        data_3d = vinterp.interp_vertical_p(data_3d, target_coords)
     elif vcoord_system == 'z':
-        target_z = vinterp.get_zg_over_ocean(data['zg'])
-        data_3d = vinterp.interp_vertical_z(data_3d, target_z)
+        data_3d = vinterp.interp_vertical_z(data_3d, target_coords)
     else:
         raise ValueError(
             f"Unsupported vertical coordinate system: {vcoord_system}.",
