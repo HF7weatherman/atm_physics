@@ -25,7 +25,7 @@ def calc_moisture_budget(data, vcoord_system, t_granularity):
 
     # Calculate evaporation and split into 2d and 3d fields
     data['evap'] = calc_evap_from_lhf(data['hfls'], data['ts'])
-    data_2d = data[['pr', 'evap']]
+    data_2d = data[['pr', 'evap']] * 86400.    # mm day-1
     data_3d = data.drop_vars(
         [v for v in data.data_vars if 'level_full' not in data[v].dims]
         )
@@ -47,41 +47,33 @@ def calc_moisture_budget(data, vcoord_system, t_granularity):
             f"Unsupported vertical coordinate system: {vcoord_system}.",
             )
 
-    # Calculate horizontal moisture convergence
+    # Calculate horizontal moisture convergence in mm day-1
     data_3d['uv_conv'] = hp_sphere.compute_hor_wind_conv_on_hp(
         data_3d['ua'], data_3d['va'],
         )
-    data_3d['q_conv'] = data_3d['q'] * data_3d['uv_conv']
+    data_3d['q_conv'] = data_3d['q'] * data_3d['uv_conv'] * 86400.
 
-    # Calculate horizontal moisture advection
+    # Calculate horizontal moisture advection in mm day-1
     q_grad = hp_sphere.compute_gradient_on_hp(data_3d['q'])
     q_adv = (q_grad[0] * data_3d['ua'], q_grad[1] * data_3d['va'])
     data_3d['q_grad'] = _calc_abs_hor_vector(q_grad[0], q_grad[1])
-    data_3d['q_adv'] = _calc_abs_hor_vector(q_adv[0], q_adv[1])
+    data_3d['q_adv'] = _calc_abs_hor_vector(q_adv[0], q_adv[1]) * 86400.
+
+    data_3d = data_3d[['q', 'dq_dt', 'uv_conv', 'q_conv', 'q_grad', 'q_adv']]
 
     # Integrate vertically
-    data_3d = data_3d[['q', 'dq_dt', 'uv_conv', 'q_conv', 'q_grad', 'q_adv']]
-    if vcoord_system == 'p':
-        data_vint = vintegr.intv_p(data_3d, vcoord_system)
-        #data_3d = calc_layer_contribution(data_3d, 'p')
-    elif vcoord_system == 'z':
-        data_vint = vintegr.intv_z(data_3d, 1, vcoord_system)
-        #data_3d = calc_layer_contribution(data_3d, 'z')
-        # Input "rho" is set to 1 because it is already included in the "q"
-        # variable for z-coordinate system.
+    data_3d = calc_layer_contribution(data_3d, vcoord_system)
+    data_3d_vint = data_3d.sum(dim=vcoord_system, skipna=True)
 
     # Transform units to mm/day, build column moisture budget and calculate residual
-    data_2d = xr.merge([data_2d, data_vint])
-    for var in ['pr', 'evap', 'q_conv', 'q_adv']:
-        data_2d[var] = data_2d[var] * 86400
+    data_2d = xr.merge([data_2d, data_3d_vint])
     data_2d['q_C'] = data_2d['pr'] - data_2d['evap'] - data_2d['dq_dt']
     data_2d['residual'] = data_2d['q_C'] - data_2d['q_conv'] - data_2d['q_adv']
-    data_2d = _add_attrs(data_2d)
-
     
-    
-
-    return (data_2d.astype(np.float32), data_3d.astype(np.float32))
+    return (
+        _add_attrs(data_2d, dim='2d').astype(np.float32),
+        _add_attrs(data_3d, dim='3d').astype(np.float32),
+        )
 
 
 # Auxiliary functions
@@ -122,53 +114,86 @@ def calc_layer_contribution(
     return out
 
 
-def _add_attrs(data_2d: xr.Dataset) -> xr.Dataset:
-    data_2d['pr'].attrs['units'] = 'mm day-1'
-    data_2d['pr'].attrs['param'] = None
+def _add_attrs(data: xr.Dataset, dim: str='3d') -> xr.Dataset:
+    if dim == '2d':
+        add_str = 'column-integrated '
+    elif dim == '3d':
+        add_str = ''
 
-    data_2d['evap'].attrs['units'] = 'mm day-1'
-    data_2d['evap'].attrs['standard_name'] = 'evap'
-    data_2d['evap'].attrs['long_name'] = 'evaporation flux'
-    data_2d['evap'].attrs['param'] = None
+    if 'pr' in data.data_vars:
+        data['pr'].attrs['units'] = 'mm day-1'
+        data['pr'].attrs['param'] = None
 
-    data_2d['dq_dt'].attrs['units'] = 'mm day-1'
-    data_2d['dq_dt'].attrs['standard_name'] = 'dq_dt'
-    data_2d['dq_dt'].attrs['long_name'] = 'column-integrated moisture tendency'
-    data_2d['dq_dt'].attrs['param'] = None
+    if 'evap' in data.data_vars:
+        data['evap'].attrs['units'] = 'mm day-1'
+        data['evap'].attrs['standard_name'] = 'evap'
+        data['evap'].attrs['long_name'] = 'evaporation flux'
+        data['evap'].attrs['param'] = None
 
-    data_2d['q_C'].attrs['units'] = 'mm day-1'
-    data_2d['q_C'].attrs['standard_name'] = 'q_C'
-    data_2d['q_C'].attrs['long_name'] = 'total column-integrated moisture convergence'
-    data_2d['q_C'].attrs['param'] = None
+    if 'dq_dt' in data.data_vars:
+        data['dq_dt'].attrs['units'] = 'mm day-1'
+        data['dq_dt'].attrs['standard_name'] = 'dq_dt'
+        data['dq_dt'].attrs['long_name'] = f'{add_str}moisture tendency'
+        data['dq_dt'].attrs['param'] = None
 
-    data_2d['residual'].attrs['units'] = 'mm day-1'
-    data_2d['residual'].attrs['standard_name'] = 'residual'
-    data_2d['residual'].attrs['long_name'] = 'column-integrated moisture residual'
-    data_2d['residual'].attrs['param'] = None
+    if 'q_C' in data.data_vars:
+        data['q_C'].attrs['units'] = 'mm day-1'
+        data['q_C'].attrs['standard_name'] = 'q_C'
+        data['q_C'].attrs['long_name'] = f'total {add_str}moisture convergence'
+        data['q_C'].attrs['param'] = None
 
-    data_2d['q_conv'].attrs['units'] = 'mm day-1'
-    data_2d['q_conv'].attrs['standard_name'] = 'q_conv'
-    data_2d['q_conv'].attrs['long_name'] = 'column-integrated moisture convergence'
-    data_2d['q_conv'].attrs['param'] = None
+    if 'residual' in data.data_vars:
+        data['residual'].attrs['units'] = 'mm day-1'
+        data['residual'].attrs['standard_name'] = 'residual'
+        data['residual'].attrs['long_name'] = f'{add_str}moisture residual'
+        data['residual'].attrs['param'] = None
 
-    data_2d['q_adv'].attrs['units'] = 'mm day-1'
-    data_2d['q_adv'].attrs['standard_name'] = 'q_adv'
-    data_2d['q_adv'].attrs['long_name'] = 'column-integrated moisture advection'
-    data_2d['q_adv'].attrs['param'] = None
+    if 'q_conv' in data.data_vars:
+        data['q_conv'].attrs['units'] = 'mm day-1'
+        data['q_conv'].attrs['standard_name'] = 'q_conv'
+        data['q_conv'].attrs['long_name'] = f'{add_str}moisture convergence'
+        data['q_conv'].attrs['param'] = None
 
-    data_2d['q'].attrs['units'] = 'kg m-2'
-    data_2d['q'].attrs['standard_name'] = 'q'
-    data_2d['q'].attrs['long_name'] = 'column-integrated specific humidity'
-    data_2d['q'].attrs['param'] = None
+    if 'q_adv' in data.data_vars:
+        data['q_adv'].attrs['units'] = 'mm day-1'
+        data['q_adv'].attrs['standard_name'] = 'q_adv'
+        data['q_adv'].attrs['long_name'] = f'{add_str}moisture advection'
+        data['q_adv'].attrs['param'] = None
 
-    data_2d['uv_conv'].attrs['units'] = 's-1'
-    data_2d['uv_conv'].attrs['standard_name'] = 'uv_conv'
-    data_2d['uv_conv'].attrs['long_name'] = 'column-integrated horizontal wind convergence'
-    data_2d['uv_conv'].attrs['param'] = None
+    if 'q' in data.data_vars:
+        data['q'].attrs['units'] = 'kg m-2'
+        data['q'].attrs['standard_name'] = 'q'
+        data['q'].attrs['long_name'] = f'{add_str} moisture'
+        data['q'].attrs['param'] = None
 
-    data_2d['q_grad'].attrs['units'] = 'kg m-3'
-    data_2d['q_grad'].attrs['standard_name'] = 'q_grad'
-    data_2d['q_grad'].attrs['long_name'] = 'column-integrated horizontal specific humidity gradient'
-    data_2d['q_grad'].attrs['param'] = None
+    if 'uv_conv' in data.data_vars:
+        data['uv_conv'].attrs['units'] = 's-1'
+        data['uv_conv'].attrs['standard_name'] = 'uv_conv'
+        data['uv_conv'].attrs['long_name'] = f'{add_str}horizontal wind convergence'
+        data['uv_conv'].attrs['param'] = None
 
-    return data_2d
+    if 'q_grad' in data.data_vars:
+        data['q_grad'].attrs['units'] = 'kg m-3'
+        data['q_grad'].attrs['standard_name'] = 'q_grad'
+        data['q_grad'].attrs['long_name'] = f'{add_str}horizontal moisture gradient'
+        data['q_grad'].attrs['param'] = None
+
+    if 'p' in data.coords:
+        data['p'].attrs['units'] = 'Pa'
+        data['p'].attrs['standard_name'] = 'air_pressure'
+        data['p'].attrs['long_name'] = 'pressure'
+        data['p'].attrs['param'] = None
+
+    if 'p_upper' in data.coords:
+        data['p_upper'].attrs['units'] = 'Pa'
+        data['p_upper'].attrs['standard_name'] = 'air_pressure'
+        data['p_upper'].attrs['long_name'] = 'pressure'
+        data['p_upper'].attrs['param'] = None
+
+    if 'p_lower' in data.coords:
+        data['p_lower'].attrs['units'] = 'Pa'
+        data['p_lower'].attrs['standard_name'] = 'air_pressure'
+        data['p_lower'].attrs['long_name'] = 'pressure'
+        data['p_lower'].attrs['param'] = None
+
+    return data
