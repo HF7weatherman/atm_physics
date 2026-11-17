@@ -4,7 +4,7 @@ import xarray as xr
 import grid_toolbox.spherical_derivatives_healpix as hp_sphere
 import grid_toolbox.vertical_interpolation as vinterp
 
-from atm_physics.physics import calc_evap_from_lhf
+from atm_physics.physics import calc_evap_from_lhf, G
 
 REQUIRED_VARS = [
     'pr', 'hfls', 'ts', 'hus', 'clw', 'cli', 'qg', 'qr', 'qs', 'ua', 'va', 'rho'
@@ -26,14 +26,14 @@ def calc_moisture_budget(data, vcoord_system, target_coords, t_granularity):
 
     # Calculate total specific humidity and its time derivative
     data_3d['q'] = _calc_total_q(data_3d)
-    if vcoord_system == 'z':
-        data_3d['q'] = data_3d['q'] * data_3d['rho']
     data_3d['dq_dt'] = calc_dq_dt(data_3d, t_granularity)
 
     # Interpolate to target vertical coordinate system
     if vcoord_system == 'p':
+        data_3d['q'] = data_3d['q'] / G
         data_3d = vinterp.interp_vertical_p(data_3d, target_coords)
     elif vcoord_system == 'z':
+        data_3d['q'] = data_3d['q'] * data_3d['rho']
         data_3d = vinterp.interp_vertical_z(data_3d, target_coords)
     else:
         raise ValueError(
@@ -48,9 +48,9 @@ def calc_moisture_budget(data, vcoord_system, target_coords, t_granularity):
 
     # Calculate horizontal moisture advection in mm day-1
     q_grad = hp_sphere.compute_gradient_on_hp(data_3d['q'])
-    q_adv = (q_grad[0] * data_3d['ua'], q_grad[1] * data_3d['va'])
+    data_3d['q_adv'] = \
+        (q_grad[0] * data_3d['ua'] + q_grad[1] * data_3d['va']) * 86400.
     data_3d['q_grad'] = _calc_abs_hor_vector(q_grad[0], q_grad[1])
-    data_3d['q_adv'] = _calc_abs_hor_vector(q_adv[0], q_adv[1]) * 86400.
 
     data_3d = data_3d[['q', 'dq_dt', 'uv_conv', 'q_conv', 'q_grad', 'q_adv']]
 
@@ -60,7 +60,7 @@ def calc_moisture_budget(data, vcoord_system, target_coords, t_granularity):
 
     # Transform units to mm/day, build column moisture budget and calculate residual
     data_2d = xr.merge([data_2d, data_3d_vint])
-    data_2d['q_C'] = data_2d['pr'] - data_2d['evap'] - data_2d['dq_dt']
+    data_2d['q_C'] = data_2d['pr'] - data_2d['evap'] + data_2d['dq_dt']
     data_2d['residual'] = data_2d['q_C'] - data_2d['q_conv'] - data_2d['q_adv']
     
     return (
@@ -98,6 +98,8 @@ def calc_layer_contribution(
     dim_upper = f_upper[dim].values
     
     dx = da[dim].diff(dim)
+    if dim == 'p':
+        dx = -dx  # pressure decreases with height
     out = 0.5 * (f_lower.assign_coords({dim: f_upper[dim]}) + f_upper) * dx
     out[dim] = 0.5 * (dim_upper + dim_lower)
     out = out.assign_coords(
