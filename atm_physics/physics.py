@@ -173,7 +173,7 @@ def calc_crh(
             "sigma-z-coordinates.",
             )
 
-    q_sat = calc_q_sat(ds.ta, ds.pfull)
+    q_sat = calc_q_sat(ds.ta, ds.p)
     
     if vcoord_system == "z":
         qsat_int = vint.intv_z(q_sat, ds.rho, vcoord_name)
