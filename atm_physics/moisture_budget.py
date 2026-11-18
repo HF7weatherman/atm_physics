@@ -6,27 +6,14 @@ import grid_toolbox.vertical_interpolation as vinterp
 
 from atm_physics.physics import calc_evap_from_lhf, G
 
-REQUIRED_VARS = [
-    'pr', 'hfls', 'ts', 'hus', 'clw', 'cli', 'qg', 'qr', 'qs', 'ua', 'va', 'rho'
-    ]
-
 
 def calc_moisture_budget(data, vcoord_system, target_coords, t_granularity):
-    # check availability of all required variables
-    for var in REQUIRED_VARS:
-        if var not in data:
-            raise ValueError(f"Missing required variable: {var}.")
-
     # Calculate evaporation and split into 2d and 3d fields
     data['evap'] = calc_evap_from_lhf(data['hfls'], data['ts'])
     data_2d = data[['pr', 'evap']] * 86400.    # mm day-1
     data_3d = data.drop_vars(
         [v for v in data.data_vars if 'level_full' not in data[v].dims]
         )
-
-    # Calculate total specific humidity and its time derivative
-    data_3d['q'] = _calc_total_q(data_3d)
-    data_3d['dq_dt'] = calc_dq_dt(data_3d, t_granularity)
 
     # Interpolate to target vertical coordinate system
     if vcoord_system == 'p':
@@ -117,78 +104,78 @@ def _add_attrs(data: xr.Dataset, dim: str='3d') -> xr.Dataset:
 
     if 'pr' in data.data_vars:
         data['pr'].attrs['units'] = 'mm day-1'
-        data['pr'].attrs['param'] = None
+        data['pr'].attrs['param'] = 'XXXXX'
 
     if 'evap' in data.data_vars:
         data['evap'].attrs['units'] = 'mm day-1'
         data['evap'].attrs['standard_name'] = 'evap'
         data['evap'].attrs['long_name'] = 'evaporation flux'
-        data['evap'].attrs['param'] = None
+        data['evap'].attrs['param'] = 'XXXXX'
 
     if 'dq_dt' in data.data_vars:
         data['dq_dt'].attrs['units'] = 'mm day-1'
         data['dq_dt'].attrs['standard_name'] = 'dq_dt'
         data['dq_dt'].attrs['long_name'] = f'{add_str}moisture tendency'
-        data['dq_dt'].attrs['param'] = None
+        data['dq_dt'].attrs['param'] = 'XXXXX'
 
     if 'q_C' in data.data_vars:
         data['q_C'].attrs['units'] = 'mm day-1'
         data['q_C'].attrs['standard_name'] = 'q_C'
         data['q_C'].attrs['long_name'] = f'total {add_str}moisture convergence'
-        data['q_C'].attrs['param'] = None
+        data['q_C'].attrs['param'] = 'XXXXX'
 
     if 'residual' in data.data_vars:
         data['residual'].attrs['units'] = 'mm day-1'
         data['residual'].attrs['standard_name'] = 'residual'
         data['residual'].attrs['long_name'] = f'{add_str}moisture residual'
-        data['residual'].attrs['param'] = None
+        data['residual'].attrs['param'] = 'XXXXX'
 
     if 'q_conv' in data.data_vars:
         data['q_conv'].attrs['units'] = 'mm day-1'
         data['q_conv'].attrs['standard_name'] = 'q_conv'
         data['q_conv'].attrs['long_name'] = f'{add_str}moisture convergence'
-        data['q_conv'].attrs['param'] = None
+        data['q_conv'].attrs['param'] = 'XXXXX'
 
     if 'q_adv' in data.data_vars:
         data['q_adv'].attrs['units'] = 'mm day-1'
         data['q_adv'].attrs['standard_name'] = 'q_adv'
         data['q_adv'].attrs['long_name'] = f'{add_str}moisture advection'
-        data['q_adv'].attrs['param'] = None
+        data['q_adv'].attrs['param'] = 'XXXXX'
 
     if 'q' in data.data_vars:
         data['q'].attrs['units'] = 'kg m-2'
         data['q'].attrs['standard_name'] = 'q'
         data['q'].attrs['long_name'] = f'{add_str} moisture'
-        data['q'].attrs['param'] = None
+        data['q'].attrs['param'] = 'XXXXX'
 
     if 'uv_conv' in data.data_vars:
         data['uv_conv'].attrs['units'] = 's-1'
         data['uv_conv'].attrs['standard_name'] = 'uv_conv'
         data['uv_conv'].attrs['long_name'] = f'{add_str}horizontal wind convergence'
-        data['uv_conv'].attrs['param'] = None
+        data['uv_conv'].attrs['param'] = 'XXXXX'
 
     if 'q_grad' in data.data_vars:
         data['q_grad'].attrs['units'] = 'kg m-3'
         data['q_grad'].attrs['standard_name'] = 'q_grad'
         data['q_grad'].attrs['long_name'] = f'{add_str}horizontal moisture gradient'
-        data['q_grad'].attrs['param'] = None
+        data['q_grad'].attrs['param'] = 'XXXXX'
 
     if 'p' in data.coords:
         data['p'].attrs['units'] = 'Pa'
         data['p'].attrs['standard_name'] = 'air_pressure'
         data['p'].attrs['long_name'] = 'pressure'
-        data['p'].attrs['param'] = None
+        data['p'].attrs['param'] = 'XXXXX'
 
     if 'p_upper' in data.coords:
         data['p_upper'].attrs['units'] = 'Pa'
         data['p_upper'].attrs['standard_name'] = 'air_pressure'
         data['p_upper'].attrs['long_name'] = 'pressure'
-        data['p_upper'].attrs['param'] = None
+        data['p_upper'].attrs['param'] = 'XXXXX'
 
     if 'p_lower' in data.coords:
         data['p_lower'].attrs['units'] = 'Pa'
         data['p_lower'].attrs['standard_name'] = 'air_pressure'
         data['p_lower'].attrs['long_name'] = 'pressure'
-        data['p_lower'].attrs['param'] = None
+        data['p_lower'].attrs['param'] = 'XXXXX'
 
     return data
