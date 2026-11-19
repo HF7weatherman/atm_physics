@@ -1,5 +1,6 @@
 import numpy as np
 import xarray as xr
+import warnings
 
 import grid_toolbox.spherical_derivatives_healpix as hp_sphere
 import grid_toolbox.vertical_interpolation as vinterp
@@ -7,7 +8,10 @@ import grid_toolbox.vertical_interpolation as vinterp
 from atm_physics.physics import calc_evap_from_lhf, G
 
 
+# ------------------------------------------------------------------------------
 def calc_moisture_budget(data, vcoord_system, target_coords, t_granularity):
+    warnings.filterwarnings(action="ignore")
+    
     # Calculate evaporation and split into 2d and 3d fields
     data['evap'] = calc_evap_from_lhf(data['hfls'], data['ts'])
     data_2d = data[['pr', 'evap']] * 86400.    # mm day-1
@@ -34,12 +38,17 @@ def calc_moisture_budget(data, vcoord_system, target_coords, t_granularity):
     data_3d['q_conv'] = data_3d['q'] * data_3d['uv_conv'] * 86400.
 
     # Calculate horizontal moisture advection in mm day-1
-    q_grad = hp_sphere.compute_gradient_on_hp(data_3d['q'])
-    data_3d['q_adv'] = \
-        (q_grad[0] * data_3d['ua'] + q_grad[1] * data_3d['va']) * 86400.
-    data_3d['q_grad'] = _calc_abs_hor_vector(q_grad[0], q_grad[1])
+    data_3d['dq_dx'], data_3d['dq_dy'] = hp_sphere.compute_gradient_on_hp(
+        data_3d['q'],
+        )
+    data_3d['q_adv'] = -86400. * \
+        (data_3d['dq_dx'] * data_3d['ua'] + data_3d['dq_dy'] * data_3d['va'])
 
-    data_3d = data_3d[['q', 'dq_dt', 'uv_conv', 'q_conv', 'q_grad', 'q_adv']]
+    data_3d = data_3d[
+        ['ua', 'va', 'q', 'dq_dt', 'uv_conv', 'q_conv', 'dq_dx', 'dq_dy',
+         'q_adv',
+         ],
+        ]
 
     # Integrate vertically
     data_3d = calc_layer_contribution(data_3d, vcoord_system)
@@ -51,8 +60,10 @@ def calc_moisture_budget(data, vcoord_system, target_coords, t_granularity):
     data_2d['residual'] = data_2d['q_C'] - data_2d['q_conv'] - data_2d['q_adv']
     
     return (
-        _add_attrs(data_2d, dim='2d').astype(np.float32),
-        _add_attrs(data_3d, dim='3d').astype(np.float32),
+        _add_attrs(xr.merge([data_2d, data[['ts', 'ofs']]]), dim='2d').\
+            astype(np.float32),
+        _add_attrs(xr.merge([data_3d, data[['ts', 'ofs']]]), dim='3d').\
+            astype(np.float32),
         )
 
 
